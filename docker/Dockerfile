@@ -1,7 +1,7 @@
 # Nexvion web image: static site served by an unprivileged Nginx.
 # Build from the repository root:
 #   docker build -f docker/Dockerfile -t nexvion-web:local .
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.29-alpine
 
 ARG APP_VERSION=dev
 ARG VCS_REF=unknown
