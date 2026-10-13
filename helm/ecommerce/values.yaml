@@ -1,0 +1,62 @@
+# Default values. Environment files (values-dev.yaml, values-prod.yaml) override these.
+# Object names are fixed (nexvion-web) so the raw manifests, the blue-green and canary scripts
+# in kubernetes/strategies and this chart all describe the same objects.
+nameOverride: ecommerce
+fullnameOverride: nexvion-web
+
+replicaCount: 2
+
+image:
+  repository: nexvion-web          # set by scripts/deploy.sh / Jenkins (ECR repository URL)
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  # Which colour receives live traffic. Changed by the blue-green release (see Jenkinsfile).
+  activeColor: blue
+
+ingress:
+  enabled: true
+  className: alb                   # AWS Load Balancer Controller (ingress-nginx was retired in March 2026)
+  scheme: internet-facing
+  host: ""                         # empty = answer on the ALB DNS name
+  certificateArn: ""               # ACM certificate ARN: enables HTTPS on 443 and redirects HTTP to HTTPS
+  annotations: {}
+
+# Optional HTTP basic auth for staging, enforced by Nginx in the pods (an ALB cannot do it).
+# Pass the bcrypt line at deploy time instead of writing it into a file:
+#   --set basicAuth.enabled=true --set-string basicAuth.htpasswd="$(htpasswd -nbB admin 'password')"
+basicAuth:
+  enabled: false
+  htpasswd: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+metrics:
+  enabled: true                    # nginx-prometheus-exporter sidecar on port 9113
+  image: nginx/nginx-prometheus-exporter:1.3.0
+  serviceMonitor:
+    enabled: false                 # true when kube-prometheus-stack is installed (or apply monitoring/kubernetes/servicemonitor.yaml)
+    namespace: monitoring
+
+networkPolicy:
+  enabled: true
+  albCidr: 10.0.0.0/8              # the ALB reaches the pods from inside the VPC (default VPC CIDRs are 10.20.0.0/16, 10.30.0.0/16)
+  monitoringNamespace: monitoring
+
+podAnnotations: {}

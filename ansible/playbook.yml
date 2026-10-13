@@ -1,0 +1,28 @@
+---
+# Configure the servers created by Terraform.
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-vault create group_vars/all/vault.yml      (see group_vars/all/vault.yml.example)
+#   ansible-playbook -i inventory.dev.ini playbook.yml --ask-vault-pass
+#   ansible-playbook -i inventory.dev.ini playbook.yml --tags hardening      (one role only)
+#   ansible-playbook -i inventory.dev.ini playbook.yml --check --diff        (dry run)
+
+- name: Baseline, hardening and Docker on every server
+  hosts: all
+  become: true
+  roles:
+    - { role: common,    tags: [common] }
+    - { role: hardening, tags: [hardening] }
+    - { role: docker,    tags: [docker] }
+
+- name: Jenkins CI/CD server
+  hosts: jenkins
+  become: true
+  roles:
+    - { role: devops_tools, tags: [tools] }
+    - { role: jenkins,      tags: [jenkins] }
+
+- name: "Application server (Docker Compose: Nexvion + monitoring + ELK)"
+  hosts: appservers
+  become: true
+  roles:
+    - { role: app, tags: [app] }

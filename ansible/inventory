@@ -1,0 +1,14 @@
+# Example inventory. Terraform writes the real one as inventory.<env>.ini (ignored by Git):
+#   ansible-playbook -i inventory.dev.ini playbook.yml
+# To use this file instead, remove the leading "#" and fill in the IP addresses.
+
+[jenkins]
+# jenkins01 ansible_host=203.0.113.20
+
+[appservers]
+# app01 ansible_host=203.0.113.30
+
+[all:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/my-ec2-keypair.pem
+ansible_python_interpreter=/usr/bin/python3

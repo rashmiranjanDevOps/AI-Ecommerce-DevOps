@@ -1,0 +1,7 @@
+---
+hardening_allowed_tcp_ports: [22, 80, 443]
+app_enable_monitoring: true
+app_enable_logging: true              # ELK needs >= 4 GB RAM
+app_proxy_port: 80
+app_image_tag: latest
+app_registry: local

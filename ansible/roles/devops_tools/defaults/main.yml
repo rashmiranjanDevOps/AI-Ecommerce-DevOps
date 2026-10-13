@@ -1,0 +1,7 @@
+---
+# Leave empty to install the newest kubectl patch of the cluster minor version (eks_cluster_version from the
+# Terraform inventory), because kubectl may differ by only one minor version from the cluster.
+kubectl_version: ""
+helm_version: "v3.15.4"
+gitleaks_version: "8.21.2"
+node_major: 20

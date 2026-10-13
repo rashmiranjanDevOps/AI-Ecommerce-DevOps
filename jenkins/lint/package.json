@@ -1,0 +1,17 @@
+{
+  "name": "nexvion-lint",
+  "private": true,
+  "description": "Lint tools for the Nexvion static site (used by the Jenkins pipeline)",
+  "scripts": {
+    "lint:html": "cd ../.. && jenkins/lint/node_modules/.bin/htmlhint --config jenkins/lint/.htmlhintrc 'application/*.html'",
+    "lint:css": "cd ../.. && jenkins/lint/node_modules/.bin/stylelint --config jenkins/lint/.stylelintrc.json 'application/*.css'",
+    "lint:js": "cd ../.. && jenkins/lint/node_modules/.bin/eslint --config jenkins/lint/eslint.config.mjs 'application/*.js'",
+    "lint": "npm run lint:html && npm run lint:css && npm run lint:js"
+  },
+  "devDependencies": {
+    "eslint": "^9.12.0",
+    "globals": "^15.11.0",
+    "htmlhint": "^1.1.4",
+    "stylelint": "^16.9.1"
+  }
+}

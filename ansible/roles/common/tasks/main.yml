@@ -1,0 +1,77 @@
+---
+- name: Only Debian/Ubuntu servers are supported
+  ansible.builtin.assert:
+    that: ansible_os_family == "Debian"
+    fail_msg: "This playbook targets Ubuntu/Debian. Use scripts/setup.sh on other distributions."
+
+- name: Update the apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+
+- name: Set the time zone
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+
+- name: Time synchronisation (chrony) is running
+  ansible.builtin.service:
+    name: chrony
+    state: started
+    enabled: true
+
+- name: Create the admin account
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+
+- name: Install the admin account's SSH public keys
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ admin_ssh_public_keys }}"
+
+- name: Passwordless sudo for the admin account (key-only login is enforced by the hardening role)
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+  when: admin_ssh_public_keys | length > 0
+
+- name: Application user (no login shell)
+  ansible.builtin.user:
+    name: "{{ nexvion_user }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: Application and log directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ nexvion_dir }}", owner: "{{ nexvion_user }}", mode: "0755" }
+    - { path: "{{ nexvion_dir }}/backups", owner: "{{ nexvion_user }}", mode: "0750" }
+    - { path: "{{ nexvion_dir }}/logs", owner: "{{ nexvion_user }}", mode: "0750" }
+
+- name: Login banner
+  ansible.builtin.copy:
+    dest: /etc/motd
+    content: |
+      Nexvion platform server ({{ inventory_hostname }}) - managed by Ansible.
+      Manual changes will be overwritten. Change the playbook instead.
+    mode: "0644"

@@ -1,0 +1,22 @@
+# Live service. For blue-green releases the "color" selector decides which version gets traffic.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexvion-web
+  namespace: nexvion
+  labels:
+    app.kubernetes.io/name: ecommerce
+    app.kubernetes.io/instance: nexvion
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ecommerce
+    app.kubernetes.io/instance: nexvion
+    color: blue
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: metrics
+      port: 9113
+      targetPort: metrics

@@ -1,0 +1,5 @@
+---
+- name: Restart nexvion
+  ansible.builtin.command: "docker compose {{ app_profiles | default('') }} up -d --build --force-recreate"
+  args:
+    chdir: "{{ nexvion_dir }}/docker"

@@ -1,0 +1,9 @@
+---
+docker_users: []          # extra users that may run docker (the jenkins role adds "jenkins")
+docker_daemon_options:
+  log-driver: json-file
+  log-opts:
+    max-size: "10m"
+    max-file: "3"
+  live-restore: true
+  no-new-privileges: true

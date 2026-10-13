@@ -1,0 +1,198 @@
+// Nexvion CI/CD pipeline (declarative).
+// Flow: GitHub push -> Jenkins trigger -> checkout -> dependencies -> build -> test -> security checks
+//       -> docker build -> image scan -> push image -> deploy -> health check -> success
+//
+// Needs on the Jenkins agent: git, docker, node/npm, python3, aws cli, kubectl, helm, trivy, gitleaks
+// (Ansible role "jenkins" + "devops_tools" installs them). AWS access comes from the EC2 instance role,
+// so no AWS keys are stored in Jenkins.
+//
+// Global environment variables to set in Jenkins (Manage Jenkins > System > Global properties):
+//   ECR_REGISTRY      e.g. 123456789012.dkr.ecr.ap-south-1.amazonaws.com
+//   EKS_CLUSTER_NAME  e.g. nexvion-dev
+//   AWS_REGION        e.g. ap-south-1
+// Optional credentials: "slack-webhook" (secret text), "jenkins-api" (user + API token, for the AI analyzer).
+
+def run(String cmd) {
+    // Run in bash, stop on first error, and keep a copy of the output for the AI incident analyzer.
+    sh(script: "#!/usr/bin/env bash\nset -euo pipefail\nmkdir -p reports\n( ${cmd} ) 2>&1 | tee -a reports/pipeline.log")
+}
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 45, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+    }
+
+    triggers {
+        githubPush()                      // GitHub webhook -> http://<jenkins>:8080/github-webhook/
+    }
+
+    parameters {
+        choice(name: 'DEPLOY_ENV',      choices: ['dev', 'prod'],                    description: 'Helm values file to use')
+        choice(name: 'DEPLOY_STRATEGY', choices: ['rolling', 'bluegreen', 'canary'], description: 'Release strategy')
+        string(name: 'CANARY_WEIGHT',   defaultValue: '10',                          description: 'Canary traffic share in percent')
+        string(name: 'APP_URL',         defaultValue: '',                            description: 'Public URL for the health check (empty = ingress load balancer address)')
+        booleanParam(name: 'DEPLOY',    defaultValue: true,                           description: 'Untick to only build, test, scan and push')
+    }
+
+    environment {
+        IMAGE_NAME = 'nexvion-web'
+        AWS_REGION = "${env.AWS_REGION ?: 'ap-south-1'}"
+    }
+
+    stages {
+
+        stage('Checkout Source') {
+            steps {
+                checkout scm
+                script {
+                    if (!env.ECR_REGISTRY)     { error('Set the global environment variable ECR_REGISTRY in Jenkins') }
+                    if (!env.EKS_CLUSTER_NAME) { error('Set the global environment variable EKS_CLUSTER_NAME in Jenkins') }
+                    env.GIT_SHORT  = sh(returnStdout: true, script: 'git rev-parse --short=8 HEAD').trim()
+                    env.IMAGE_TAG  = "${env.BUILD_NUMBER}-${env.GIT_SHORT}"
+                    env.IMAGE_REPO = "${env.ECR_REGISTRY}/${env.IMAGE_NAME}"
+                    env.IMAGE_FULL = "${env.IMAGE_REPO}:${env.IMAGE_TAG}"
+                    currentBuild.displayName = "#${env.BUILD_NUMBER} ${env.GIT_SHORT}"
+                }
+                sh 'rm -rf reports && mkdir -p reports'
+                echo "Image will be ${env.IMAGE_FULL}"
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                // The site itself has no package manager files; these are the lint tools.
+                run 'cd jenkins/lint && npm install --no-audit --no-fund --loglevel=error'
+                run 'python3 -c "import yaml" || python3 -m pip install --user pyyaml'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                run 'npm --prefix jenkins/lint run lint'
+                // "Build" for a static site = lint + package the validated site as a build artifact.
+                run 'mkdir -p build && tar -czf "build/nexvion-site-${IMAGE_TAG}.tar.gz" application'
+                archiveArtifacts artifacts: 'build/*.tar.gz', fingerprint: true
+            }
+        }
+
+        stage('Test') {
+            steps {
+                run './scripts/test.sh'
+            }
+        }
+
+        stage('Security Checks') {
+            parallel {
+                stage('Secret scan')            { steps { run './security/scan-secrets.sh' } }
+                stage('Dependency + IaC scan')  { steps { run './security/scan-dependencies.sh' } }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                run './scripts/deploy.sh build --registry "${ECR_REGISTRY}" --tag "${IMAGE_TAG}"'
+                // Smoke test the image before it goes anywhere.
+                run '''
+                    docker rm -f nexvion-smoke >/dev/null 2>&1 || true
+                    docker run -d --name nexvion-smoke -p 18080:8080 "${IMAGE_FULL}"
+                    ./scripts/health-check.sh --url http://localhost:18080 --retries 10 --delay 3
+                '''
+            }
+            post { always { sh 'docker rm -f nexvion-smoke >/dev/null 2>&1 || true' } }
+        }
+
+        stage('Image Scan') {
+            steps { run './security/scan-image.sh "${IMAGE_FULL}" --sbom' }
+            post { always { archiveArtifacts artifacts: 'reports/*', allowEmptyArchive: true } }
+        }
+
+        stage('Push Image') {
+            steps { run './scripts/deploy.sh push --registry "${ECR_REGISTRY}" --tag "${IMAGE_TAG}" --region "${AWS_REGION}"' }
+        }
+
+        stage('Deploy') {
+            when {
+                allOf {
+                    expression { params.DEPLOY }
+                    // main branch only (works for multibranch and for "Pipeline from SCM")
+                    expression { (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main').replaceAll('^origin/', '') == 'main' }
+                }
+            }
+            steps {
+                run 'aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"'
+                script {
+                    def helmDeploy = './scripts/deploy.sh helm --env "${DEPLOY_ENV}" --image-repo "${IMAGE_REPO}" --tag "${IMAGE_TAG}"'
+                    if (params.DEPLOY_STRATEGY == 'rolling') {
+                        run helmDeploy
+
+                    } else if (params.DEPLOY_STRATEGY == 'canary') {
+                        run './scripts/deploy.sh canary start "${IMAGE_FULL}" "${CANARY_WEIGHT}"'
+                        input message: "Canary is live with ${params.CANARY_WEIGHT}% of traffic. Check Grafana/Kibana. Promote to 100%?", ok: 'Promote'
+                        run helmDeploy                                   // stable gets the new version (rolling update)
+                        run './scripts/deploy.sh canary abort'           // remove the canary
+                        
+                    } else {   // bluegreen
+                        run './scripts/deploy.sh bluegreen deploy "${IMAGE_FULL}"'
+                        input message: 'Green is running but has no live traffic. Test it (port-forward svc/nexvion-web-green-preview). Switch traffic?', ok: 'Switch to green'
+                        run './scripts/deploy.sh bluegreen promote'
+                        // Update blue to the new version while traffic stays on green, then return to blue.
+                        run helmDeploy + ' --set service.activeColor=green'
+                        run './scripts/deploy.sh bluegreen finalize'
+                    }
+                }
+            }
+        }
+
+        stage('Health Check') {
+            when { expression { params.DEPLOY && (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main').replaceAll('^origin/', '') == 'main' } }
+            steps {
+                script {
+                    def url = params.APP_URL?.trim()
+                    if (!url) {
+                        // The ALB address of the Ingress (waits until the load balancer exists)
+                        def host = sh(returnStdout: true, script: './scripts/deploy.sh ingress-host').trim()
+                        url = "http://${host}"
+                    }
+                    run "./scripts/health-check.sh --k8s --url '${url}' --retries 20 --delay 15"
+                }
+            }
+        }
+
+        stage('Deployment Success') {
+            steps { echo "Nexvion ${env.IMAGE_TAG} is deployed and healthy." }
+        }
+    }
+
+    post {
+        success { script { notify("SUCCESS: Nexvion ${env.IMAGE_TAG} deployed (${env.JOB_NAME} #${env.BUILD_NUMBER})") } }
+        failure {
+            // AI-assisted incident analysis: classify the failure and suggest what to check.
+            sh '''
+                python3 ai/incident-analysis/analyzer.py --file reports/pipeline.log --source jenkins \
+                    --output reports/incident-report.md --format markdown || true
+                cat reports/incident-report.md 2>/dev/null || true
+            '''
+            script { notify("FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} - see ${env.BUILD_URL}console and the incident report artifact") }
+        }
+        always {
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            sh 'docker image prune -f >/dev/null 2>&1 || true'
+        }
+    }
+}
+
+def notify(String message) {
+    // Optional Slack message. Skipped silently when the credential does not exist.
+    try {
+        withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_URL')]) {
+            sh(script: "curl -fsS -X POST -H 'Content-type: application/json' --data '{\"text\":\"${message}\"}' \"\$SLACK_URL\" >/dev/null", returnStatus: true)
+        }
+    } catch (ignored) {
+        echo "Slack notification skipped (no 'slack-webhook' credential): ${message}"
+    }
+}

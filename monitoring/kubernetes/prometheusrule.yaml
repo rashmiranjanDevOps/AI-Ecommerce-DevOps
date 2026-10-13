@@ -1,0 +1,45 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nexvion-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexvion
+spec:
+  groups:
+    - name: nexvion-kubernetes
+      rules:
+        - alert: NexvionDeploymentUnavailable
+          expr: kube_deployment_status_replicas_available{namespace="nexvion"} < kube_deployment_spec_replicas{namespace="nexvion"}
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has unavailable replicas"
+            description: "Fewer replicas are available than desired for 5 minutes."
+        - alert: NexvionPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="nexvion"}[15m]) > 3
+          labels: { severity: critical }
+          annotations:
+            summary: "Pod {{ $labels.pod }} is restarting repeatedly"
+            description: "More than 3 restarts in 15 minutes."
+        - alert: NexvionPodNotReady
+          expr: kube_pod_status_ready{namespace="nexvion",condition="true"} == 0
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "Pod {{ $labels.pod }} is not ready"
+            description: "The pod has not been ready for 5 minutes."
+        - alert: NexvionNodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "Node {{ $labels.node }} is not ready"
+            description: "The node has been NotReady for 5 minutes."
+        - alert: NexvionHighPodCPU
+          expr: sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="nexvion",container!=""}[5m])) > 0.4
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "High CPU in {{ $labels.pod }}"
+            description: "Pod CPU has been above 0.4 cores for 10 minutes."

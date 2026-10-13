@@ -1,0 +1,11 @@
+# Trivy defaults used by the scripts in this folder.
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - vuln
+    - secret
+    - misconfig
+ignorefile: security/.trivyignore
+format: table

@@ -1,0 +1,31 @@
+# Application Load Balancer created by the AWS Load Balancer Controller (installed by
+# "scripts/deploy.sh addons"). ingress-nginx is not used: it was retired in March 2026.
+# No host is set, so the site answers on the ALB DNS name:
+#   kubectl -n nexvion get ingress nexvion-web
+# HTTPS: add alb.ingress.kubernetes.io/certificate-arn (ACM), listen-ports for 80 and 443 and ssl-redirect.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexvion-web
+  namespace: nexvion
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60,routing.http.drop_invalid_header_fields.enabled=true
+    alb.ingress.kubernetes.io/tags: Project=nexvion
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nexvion-web
+                port:
+                  name: http

@@ -1,0 +1,86 @@
+# Canary = the NEW version for a small share of traffic. The stable deployment, service and
+# ingress are the ones in kubernetes/. canary.sh makes the ALB split traffic between the stable and the
+# canary Service with weighted target groups (annotation on the main Ingress).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexvion-web-canary
+  namespace: nexvion
+  labels:
+    app.kubernetes.io/name: ecommerce-canary
+    app.kubernetes.io/part-of: nexvion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ecommerce-canary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ecommerce-canary
+        app.kubernetes.io/part-of: nexvion
+    spec:
+      serviceAccountName: nexvion-web
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: nexvion-web:latest   # set to the canary tag by canary.sh
+          ports:
+            - { name: http, containerPort: 8080 }
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf, readOnly: true }
+            - { name: auth, mountPath: /etc/nginx/auth.d, readOnly: true }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: nginx-conf, configMap: { name: nexvion-nginx } }
+        - { name: auth, secret: { secretName: nexvion-basic-auth, optional: true } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexvion-web-canary
+  namespace: nexvion
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ecommerce-canary
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# The namespace is default-deny (kubernetes/networkpolicy.yaml). Canary pods carry a different label,
+# so they need their own rule to receive traffic from the ALB.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-canary
+  namespace: nexvion
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ecommerce-canary
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - { protocol: TCP, port: 8080 }

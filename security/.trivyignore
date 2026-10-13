@@ -1,0 +1,3 @@
+# Accepted findings. Every line needs a reason and a review date.
+# Format: <vulnerability-id>   # reason, owner, review by YYYY-MM-DD
+# (empty on purpose: nothing is accepted at the moment)

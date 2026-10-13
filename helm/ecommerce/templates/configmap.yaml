@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexvion-nginx
+  labels:
+    {{- include "ecommerce.labels" . | nindent 4 }}
+data:
+  default.conf: |
+{{ .Files.Get "files/default.conf" | indent 4 }}

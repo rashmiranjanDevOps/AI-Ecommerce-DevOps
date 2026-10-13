@@ -1,0 +1,28 @@
+---
+# Values shared by every server. Terraform's inventory also provides:
+# aws_region, ecr_registry, eks_cluster_name, nexvion_environment.
+timezone: "Asia/Kolkata"
+admin_user: devops                    # personal admin account created on every server
+admin_ssh_public_keys: []             # add your public key(s): ["ssh-ed25519 AAAA... you@laptop"]
+
+base_packages:
+  - git
+  - curl
+  - wget
+  - jq
+  - unzip
+  - rsync
+  - htop
+  - vim
+  - make
+  - python3-pip
+  - python3-yaml
+  - apache2-utils
+  - chrony
+  - acl
+  - ca-certificates
+  - gnupg
+
+nexvion_user: nexvion                 # owns the application directory
+nexvion_dir: /opt/nexvion
+nexvion_repo_url: "https://github.com/YOUR-ORG/ai-ecommerce-devops.git"   # used by the Jenkins job

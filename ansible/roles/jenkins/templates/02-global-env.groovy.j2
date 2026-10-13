@@ -1,0 +1,16 @@
+// Managed by Ansible. Global variables read by jenkins/Jenkinsfile.
+import jenkins.model.*
+import hudson.slaves.EnvironmentVariablesNodeProperty
+
+def instance = Jenkins.get()
+def props = instance.getGlobalNodeProperties()
+def envProp = props.get(EnvironmentVariablesNodeProperty)
+if (envProp == null) {
+    envProp = new EnvironmentVariablesNodeProperty()
+    props.add(envProp)
+}
+def vars = envProp.getEnvVars()
+vars.put('ECR_REGISTRY', '{{ ecr_registry | default("") }}')
+vars.put('EKS_CLUSTER_NAME', '{{ eks_cluster_name | default("") }}')
+vars.put('AWS_REGION', '{{ aws_region | default("ap-south-1") }}')
+instance.save()

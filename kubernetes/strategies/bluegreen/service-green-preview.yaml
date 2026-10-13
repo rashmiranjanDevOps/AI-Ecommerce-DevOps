@@ -1,0 +1,15 @@
+# Internal-only service for smoke-testing the green version before the switch:
+#   kubectl -n nexvion port-forward svc/nexvion-web-green-preview 8081:80
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexvion-web-green-preview
+  namespace: nexvion
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ecommerce
+    app.kubernetes.io/instance: nexvion
+    color: green
+  ports:
+    - { name: http, port: 80, targetPort: http }

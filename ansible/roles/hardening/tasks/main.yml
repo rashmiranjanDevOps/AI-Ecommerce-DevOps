@@ -1,0 +1,76 @@
+---
+- name: Install security packages
+  ansible.builtin.apt:
+    name: [ufw, fail2ban, unattended-upgrades, auditd]
+    state: present
+
+- name: SSH hardening drop-in
+  ansible.builtin.template:
+    src: 99-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd
+
+- name: Check the SSH configuration before reloading it
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Firewall - default deny incoming
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Firewall - allow outgoing
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Firewall - allow the required TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item | string }}"
+    proto: tcp
+  loop: "{{ hardening_allowed_tcp_ports }}"
+
+- name: Firewall - enable
+  community.general.ufw:
+    state: enabled
+
+- name: fail2ban jail for SSH
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: fail2ban is running
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true
+
+- name: Automatic security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Kernel and network hardening (sysctl)
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/98-nexvion-hardening.conf
+    reload: true
+    state: present
+  loop: "{{ hardening_sysctl | dict2items }}"
+
+- name: /etc/shadow permissions
+  ansible.builtin.file:
+    path: /etc/shadow
+    owner: root
+    group: shadow
+    mode: "0640"

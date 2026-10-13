@@ -1,0 +1,9 @@
+# Managed by Ansible (role: hardening)
+PermitRootLogin no
+PasswordAuthentication {{ 'no' if hardening_ssh_disable_passwords else 'yes' }}
+KbdInteractiveAuthentication no
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+X11Forwarding no
+AllowAgentForwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2

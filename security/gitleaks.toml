@@ -1,0 +1,18 @@
+# Gitleaks configuration: default rules + allow-list for documented placeholders only.
+title = "Nexvion gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders that are intentionally in the repository"
+paths = [
+  '''docker/\.env\.example''',
+  '''kubernetes/secret\.yaml''',
+  '''ai/incident-analysis/samples/.*''',
+  '''docs/.*\.md''',
+]
+regexes = [
+  '''change-me-before-use''',
+  '''REPLACE_WITH_[A-Z_]+''',
+]

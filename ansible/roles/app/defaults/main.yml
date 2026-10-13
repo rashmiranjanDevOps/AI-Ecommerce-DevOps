@@ -1,0 +1,7 @@
+---
+app_enable_monitoring: true
+app_enable_logging: true
+app_proxy_port: 80
+app_image_tag: latest
+app_registry: local
+app_backup_hour: 2

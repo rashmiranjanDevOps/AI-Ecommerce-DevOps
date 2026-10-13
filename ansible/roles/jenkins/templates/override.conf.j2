@@ -1,0 +1,7 @@
+# Managed by Ansible (role: jenkins)
+[Service]
+Environment="JAVA_OPTS=-Djava.awt.headless=true{{ ' -Djenkins.install.runSetupWizard=false' if jenkins_admin_password is defined else '' }}"
+Environment="JENKINS_OPTS=--httpPort={{ jenkins_http_port }}"
+{% if jenkins_admin_password is defined %}
+Environment="JENKINS_ADMIN_PASSWORD={{ jenkins_admin_password }}"
+{% endif %}

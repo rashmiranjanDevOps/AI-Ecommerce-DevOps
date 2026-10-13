@@ -1,0 +1,139 @@
+---
+- name: Java 17 (required by Jenkins)
+  ansible.builtin.apt:
+    name: [openjdk-17-jre-headless, fontconfig]
+    state: present
+
+- name: Jenkins apt key
+  ansible.builtin.get_url:
+    url: "{{ jenkins_apt_key_url }}"
+    dest: /etc/apt/keyrings/jenkins.asc
+    mode: "0644"
+
+- name: Jenkins apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/jenkins.asc] https://pkg.jenkins.io/debian-stable binary/"
+    filename: jenkins
+    state: present
+
+- name: Install Jenkins
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+    update_cache: true
+
+- name: Jenkins may use Docker
+  ansible.builtin.user:
+    name: jenkins
+    groups: docker
+    append: true
+  notify: Restart jenkins
+
+- name: systemd override (port, setup wizard, admin password)
+  ansible.builtin.file:
+    path: /etc/systemd/system/jenkins.service.d
+    state: directory
+    mode: "0755"
+
+- name: systemd override file
+  ansible.builtin.template:
+    src: override.conf.j2
+    dest: /etc/systemd/system/jenkins.service.d/override.conf
+    owner: root
+    group: root
+    mode: "0600"      # may contain the admin password
+  no_log: true
+  notify: Restart jenkins
+
+- name: Plugin manager
+  ansible.builtin.get_url:
+    url: "https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/{{ jenkins_plugin_manager_version }}/jenkins-plugin-manager-{{ jenkins_plugin_manager_version }}.jar"
+    dest: /opt/jenkins-plugin-manager.jar
+    mode: "0644"
+
+- name: Plugin list
+  ansible.builtin.copy:
+    dest: /opt/jenkins-plugins.txt
+    content: "{{ jenkins_plugins | join('\n') }}\n"
+    mode: "0644"
+  register: plugin_list
+
+- name: Install plugins
+  ansible.builtin.command: >
+    java -jar /opt/jenkins-plugin-manager.jar
+    --war /usr/share/java/jenkins.war
+    --plugin-file /opt/jenkins-plugins.txt
+    --plugin-download-directory /var/lib/jenkins/plugins
+  become_user: jenkins
+  when: plugin_list.changed
+  notify: Restart jenkins
+
+- name: Groovy init scripts directory
+  ansible.builtin.file:
+    path: /var/lib/jenkins/init.groovy.d
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "0755"
+
+- name: Security init script (only when an admin password is provided)
+  ansible.builtin.template:
+    src: 01-security.groovy.j2
+    dest: /var/lib/jenkins/init.groovy.d/01-security.groovy
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  when: jenkins_admin_password is defined
+  notify: Restart jenkins
+
+- name: Global environment variables init script
+  ansible.builtin.template:
+    src: 02-global-env.groovy.j2
+    dest: /var/lib/jenkins/init.groovy.d/02-global-env.groovy
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  notify: Restart jenkins
+
+- name: Pipeline job init script
+  ansible.builtin.template:
+    src: 03-create-job.groovy.j2
+    dest: /var/lib/jenkins/init.groovy.d/03-create-job.groovy
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  when: jenkins_create_job | bool
+  notify: Restart jenkins
+
+- name: Jenkins is running and starts at boot
+  ansible.builtin.systemd:
+    name: jenkins
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Apply pending restarts now so the checks below see the final configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the Jenkins web interface
+  ansible.builtin.uri:
+    url: "http://localhost:{{ jenkins_http_port }}/login"
+    status_code: [200, 403]
+  register: jenkins_up
+  retries: 30
+  delay: 10
+  until: jenkins_up.status in [200, 403]
+
+- name: Initial admin password (only when no admin password was supplied)
+  ansible.builtin.slurp:
+    src: /var/lib/jenkins/secrets/initialAdminPassword
+  register: initial_pw
+  when: jenkins_admin_password is not defined
+  failed_when: false
+
+- name: Show how to log in
+  ansible.builtin.debug:
+    msg: >-
+      Jenkins is at http://{{ ansible_host | default(inventory_hostname) }}:{{ jenkins_http_port }} -
+      {{ ('first login password: ' ~ (initial_pw.content | b64decode | trim)) if (initial_pw.content is defined)
+         else ('log in as ' ~ jenkins_admin_user ~ ' with the password from your vault') }}

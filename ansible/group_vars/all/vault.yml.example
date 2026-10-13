@@ -1,0 +1,5 @@
+---
+# Copy to vault.yml, fill in, then encrypt:   ansible-vault encrypt group_vars/all/vault.yml
+# Never commit this file unencrypted.
+grafana_admin_password: "CHANGE-ME-strong-password"
+jenkins_admin_password: "CHANGE-ME-strong-password"

@@ -1,0 +1,8 @@
+2026-10-08T09:58:01.120Z info  Server listening on port 5000
+2026-10-08T09:58:03.411Z info  Connecting to database mysql at 10.0.12.5:3306 ...
+2026-10-08T09:58:33.502Z error SequelizeConnectionError: connect ETIMEDOUT 10.0.12.5:3306
+2026-10-08T09:58:33.503Z error Database connection timeout after 30000ms (host=10.0.12.5 port=3306 user=app_user password=Sup3rS3cret!)
+2026-10-08T09:58:34.100Z warn  Retrying database connection (attempt 2 of 5)
+2026-10-08T09:59:04.230Z error SequelizeConnectionError: connect ETIMEDOUT 10.0.12.5:3306
+2026-10-08T09:59:04.231Z error Lost connection to MySQL server at 'reading initial communication packet'
+2026-10-08T09:59:05.002Z error GET /api/orders 500 Internal Server Error

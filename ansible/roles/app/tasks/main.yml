@@ -1,0 +1,107 @@
+---
+- name: A Grafana password is required (put it in the Ansible vault)
+  ansible.builtin.assert:
+    that: grafana_admin_password is defined and grafana_admin_password | length >= 12
+    fail_msg: "Define grafana_admin_password (12+ characters) in group_vars/all/vault.yml"
+  when: app_enable_monitoring | bool
+
+- name: Compose profiles to start
+  ansible.builtin.set_fact:
+    app_profiles: >-
+      {{ ('--profile monitoring ' if app_enable_monitoring | bool else '') ~
+         ('--profile logging' if app_enable_logging | bool else '') }}
+
+- name: Elasticsearch needs a larger memory-map limit
+  ansible.posix.sysctl:
+    name: vm.max_map_count
+    value: "262144"
+    sysctl_file: /etc/sysctl.d/99-nexvion.conf
+    reload: true
+  when: app_enable_logging | bool
+
+- name: Copy the project to the server (no secrets, no Git data, no state files)
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../"
+    dest: "{{ nexvion_dir }}/"
+    delete: false
+    recursive: true
+    rsync_opts:
+      - "--exclude=.git"
+      - "--exclude=.terraform"
+      - "--exclude=*.tfstate*"
+      - "--exclude=*.tfvars"
+      - "--exclude=.env"
+      - "--exclude=backups"
+      - "--exclude=reports"
+      - "--exclude=logs"
+      - "--exclude=ansible/inventory.*.ini"
+      - "--exclude=ansible/group_vars/all/vault.yml"
+  notify: Restart nexvion
+
+- name: Project files belong to the application user
+  ansible.builtin.file:
+    path: "{{ nexvion_dir }}"
+    owner: "{{ nexvion_user }}"
+    group: "{{ nexvion_user }}"
+    recurse: true
+    mode: u=rwX,g=rX,o=rX
+
+- name: Compose environment file (secrets, 0600)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ nexvion_dir }}/docker/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart nexvion
+
+- name: systemd unit for the stack
+  ansible.builtin.template:
+    src: nexvion.service.j2
+    dest: /etc/systemd/system/nexvion.service
+    mode: "0644"
+  notify: Restart nexvion
+
+- name: Build and start the stack
+  ansible.builtin.command: "docker compose {{ app_profiles }} up -d --build"
+  args:
+    chdir: "{{ nexvion_dir }}/docker"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr or 'Recreated' in compose_up.stderr"
+
+- name: Enable the stack at boot
+  ansible.builtin.systemd:
+    name: nexvion
+    enabled: true
+    daemon_reload: true
+
+- name: The site answers on /health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ app_proxy_port }}/health"
+    return_content: true
+  register: health
+  retries: 20
+  delay: 6
+  until: health.status == 200 and '"status":"ok"' in health.content
+
+- name: Nightly backup
+  ansible.builtin.cron:
+    name: "nexvion backup"
+    minute: "15"
+    hour: "{{ app_backup_hour }}"
+    user: root
+    job: "cd {{ nexvion_dir }} && ./scripts/backup.sh --volumes >> {{ nexvion_dir }}/logs/cron-backup.log 2>&1"
+
+- name: Weekly cleanup
+  ansible.builtin.cron:
+    name: "nexvion cleanup"
+    minute: "30"
+    hour: "3"
+    weekday: "0"
+    user: root
+    job: "cd {{ nexvion_dir }} && ./scripts/cleanup.sh >> {{ nexvion_dir }}/logs/cron-cleanup.log 2>&1"
+
+- name: Show the result
+  ansible.builtin.debug:
+    msg: "Nexvion is running at http://{{ ansible_host | default(inventory_hostname) }}:{{ app_proxy_port }}  (Grafana/Kibana/Prometheus are bound to localhost: use an SSH tunnel)"

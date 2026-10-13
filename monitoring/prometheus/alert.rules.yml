@@ -1,0 +1,60 @@
+groups:
+  - name: nexvion-availability
+    rules:
+      - alert: SiteDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Nexvion endpoint down: {{ $labels.instance }}"
+          description: "The HTTP probe for {{ $labels.instance }} has failed for more than 1 minute."
+
+      - alert: SlowResponse
+        expr: probe_duration_seconds{job="blackbox-http"} > 2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Slow response from {{ $labels.instance }}"
+          description: "Probe duration has been above 2 seconds for 5 minutes."
+
+      - alert: NginxExporterDown
+        expr: up{job="nginx"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Nginx metrics are missing"
+          description: "Prometheus cannot scrape the Nginx exporter."
+
+  - name: nexvion-host
+    rules:
+      - alert: HighCPU
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage has been above 85% for 10 minutes."
+
+      - alert: HighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage has been above 90% for 10 minutes."
+
+      - alert: DiskAlmostFull
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/host",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/host",fstype!~"tmpfs|overlay"}) * 100 > 85
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Disk almost full"
+          description: "The root file system is more than 85% full."
+
+      - alert: WebContainerMissing
+        expr: absent(container_last_seen{name="nexvion-web"})
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "nexvion-web container is not running"
+          description: "cAdvisor has not seen the nexvion-web container for 2 minutes."

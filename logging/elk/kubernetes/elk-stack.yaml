@@ -1,0 +1,275 @@
+# Compact ELK stack for the cluster (single-node Elasticsearch, lab sizing).
+# Needs nodes with at least 8 GB RAM in total. Apply with:
+#   kubectl apply -f logging/elk/kubernetes/elk-stack.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    pod-security.kubernetes.io/enforce: privileged   # Filebeat reads host log paths
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: logging
+spec:
+  clusterIP: None
+  selector: { app: elasticsearch }
+  ports:
+    - { name: http, port: 9200 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: logging
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels: { app: elasticsearch }
+  template:
+    metadata:
+      labels: { app: elasticsearch }
+    spec:
+      initContainers:
+        - name: sysctl
+          image: busybox:1.36
+          command: ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
+          securityContext: { privileged: true }
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: xpack.security.enabled, value: "false" }   # ClusterIP only, see NetworkPolicy
+            - { name: ES_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+          ports:
+            - { name: http, containerPort: 9200 }
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { memory: 1536Mi }
+          readinessProbe:
+            httpGet: { path: "/_cluster/health?local=true", port: 9200 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/elasticsearch/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-pipeline
+  namespace: logging
+data:
+  logstash.conf: |
+    input { beats { port => 5044 } }
+    filter {
+      if [message] =~ /^\s*\{.*\}\s*$/ {
+        json { source => "message" target => "nginx" skip_on_invalid_json => true }
+        if [nginx][time] { date { match => ["[nginx][time]", "ISO8601"] target => "@timestamp" } }
+        ruby { code => 'st = event.get("[nginx][status]"); event.set("[nginx][status_class]", "#{st.to_i / 100}xx") if st' }
+        mutate { add_tag => ["nginx_json"] }
+      }
+      mutate { add_field => { "[@metadata][index]" => "nexvion-logs" } }
+    }
+    output {
+      elasticsearch {
+        hosts => ["${ES_HOSTS:http://elasticsearch:9200}"]
+        index => "%{[@metadata][index]}-%{+YYYY.MM.dd}"
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  selector: { app: logstash }
+  ports:
+    - { name: beats, port: 5044 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: logstash }
+  template:
+    metadata:
+      labels: { app: logstash }
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.15.2
+          env:
+            - { name: LS_JAVA_OPTS, value: "-Xms256m -Xmx256m" }
+            - { name: ES_HOSTS, value: "http://elasticsearch:9200" }
+            - { name: XPACK_MONITORING_ENABLED, value: "false" }
+          ports:
+            - { name: beats, containerPort: 5044 }
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { memory: 768Mi }
+          volumeMounts:
+            - { name: pipeline, mountPath: /usr/share/logstash/pipeline }
+      volumes:
+        - name: pipeline
+          configMap: { name: logstash-pipeline }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: logging
+spec:
+  selector: { app: kibana }
+  ports:
+    - { name: http, port: 5601 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: logging
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kibana }
+  template:
+    metadata:
+      labels: { app: kibana }
+    spec:
+      containers:
+        - name: kibana
+          image: docker.elastic.co/kibana/kibana:8.15.2
+          env:
+            - { name: ELASTICSEARCH_HOSTS, value: "http://elasticsearch:9200" }
+          ports:
+            - { name: http, containerPort: 5601 }
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /api/status, port: 5601 }
+            initialDelaySeconds: 40
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+subjects:
+  - { kind: ServiceAccount, name: filebeat, namespace: logging }
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: logging
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: container
+        paths: ["/var/log/containers/*.log"]
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+              matchers:
+                - logs_path:
+                    logs_path: "/var/log/containers/"
+    processors:
+      - drop_event:
+          when:
+            or:
+              - equals: { kubernetes.namespace: "logging" }
+              - equals: { kubernetes.namespace: "kube-system" }
+    output.logstash:
+      hosts: ["logstash.logging.svc:5044"]
+    logging.level: warning
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: logging
+spec:
+  selector:
+    matchLabels: { app: filebeat }
+  template:
+    metadata:
+      labels: { app: filebeat }
+    spec:
+      serviceAccountName: filebeat
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.15.2
+          args: ["-e", "--strict.perms=false"]
+          env:
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests: { cpu: 50m, memory: 100Mi }
+            limits: { memory: 200Mi }
+          volumeMounts:
+            - { name: config, mountPath: /usr/share/filebeat/filebeat.yml, subPath: filebeat.yml, readOnly: true }
+            - { name: varlog, mountPath: /var/log, readOnly: true }
+            - { name: dockercontainers, mountPath: /var/lib/docker/containers, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: filebeat-config, defaultMode: 0640 }
+        - name: varlog
+          hostPath: { path: /var/log }
+        - name: dockercontainers
+          hostPath: { path: /var/lib/docker/containers }
+---
+# Only Logstash may talk to Elasticsearch; nothing outside the namespace reaches it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: elasticsearch-restrict
+  namespace: logging
+spec:
+  podSelector:
+    matchLabels: { app: elasticsearch }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: logstash } }
+        - podSelector: { matchLabels: { app: kibana } }
+      ports:
+        - { port: 9200 }

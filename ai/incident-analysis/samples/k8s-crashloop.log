@@ -1,0 +1,15 @@
+Name:         nexvion-web-6d9f7c8b5-x2k4p
+Namespace:    nexvion
+Status:       Running
+Containers:
+  web:
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       OOMKilled
+      Exit Code:    137
+    Restart Count:  7
+Events:
+  Warning  Unhealthy  3m   kubelet  Readiness probe failed: Get "http://10.0.3.12:8080/health": connection refused
+  Warning  BackOff    2m   kubelet  Back-off restarting failed container web in pod nexvion-web-6d9f7c8b5-x2k4p
+  Warning  Failed     9m   kubelet  Failed to pull image "123456789012.dkr.ecr.ap-south-1.amazonaws.com/nexvion-web:99-abcd1234": rpc error: code = NotFound: ErrImagePull

@@ -1,0 +1,15 @@
+// Managed by Ansible. Creates the admin user and disables anonymous access.
+import jenkins.model.*
+import hudson.security.*
+
+def instance = Jenkins.get()
+def password = System.getenv('JENKINS_ADMIN_PASSWORD')
+if (password) {
+    def realm = new HudsonPrivateSecurityRealm(false)
+    realm.createAccount('{{ jenkins_admin_user }}', password)
+    instance.setSecurityRealm(realm)
+    def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+    strategy.setAllowAnonymousRead(false)
+    instance.setAuthorizationStrategy(strategy)
+    instance.save()
+}

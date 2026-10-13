@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexvion
+  labels:
+    app.kubernetes.io/part-of: nexvion
+    # Pods must meet the "restricted" Pod Security Standard (non-root, no privilege escalation, ...).
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

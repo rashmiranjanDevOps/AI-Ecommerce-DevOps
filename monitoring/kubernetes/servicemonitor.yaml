@@ -1,0 +1,19 @@
+# Scrapes the nginx-prometheus-exporter sidecar of the Nexvion pods.
+# Apply after kube-prometheus-stack is installed (it provides the CRDs).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nexvion-web
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexvion
+spec:
+  namespaceSelector:
+    matchNames: [nexvion]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ecommerce
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics

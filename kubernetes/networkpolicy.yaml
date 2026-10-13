@@ -1,0 +1,46 @@
+# Default deny, then allow only what is needed. Requires a CNI that enforces policies
+# (on EKS: VPC CNI with network policy support - enabled in terraform/modules/eks).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: nexvion
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# The ALB sends traffic straight to the pod IPs (target-type: ip) from addresses inside the VPC.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb
+  namespace: nexvion
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ecommerce
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8      # private ranges only; the default VPC CIDRs are 10.20.0.0/16 and 10.30.0.0/16
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: nexvion
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ecommerce
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - { protocol: TCP, port: 9113 }

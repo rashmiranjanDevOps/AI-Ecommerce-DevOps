@@ -1,0 +1,15 @@
+replicaCount: 3
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 10
+podDisruptionBudget:
+  minAvailable: 2
+ingress:
+  host: ""                         # set your domain once its DNS record points at the ALB
+  certificateArn: ""               # ACM certificate ARN (terraform can create one; see docs/deployment.md)
+metrics:
+  serviceMonitor:
+    enabled: true
+resources:
+  requests: { cpu: 100m, memory: 96Mi }
+  limits: { cpu: 500m, memory: 192Mi }

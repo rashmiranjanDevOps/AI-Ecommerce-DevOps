@@ -1,0 +1,20 @@
+// Managed by Ansible. Creates the pipeline job "nexvion" that runs jenkins/Jenkinsfile from Git.
+// The job is skipped (not fatal) if the Git/Pipeline plugins are not installed yet.
+import jenkins.model.*
+
+try {
+    def instance = Jenkins.get()
+    if (instance.getItem('nexvion') == null) {
+        def jobClass = instance.getPluginManager().uberClassLoader.loadClass('org.jenkinsci.plugins.workflow.job.WorkflowJob')
+        def flowClass = instance.getPluginManager().uberClassLoader.loadClass('org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition')
+        def gitClass = instance.getPluginManager().uberClassLoader.loadClass('hudson.plugins.git.GitSCM')
+        def branchClass = instance.getPluginManager().uberClassLoader.loadClass('hudson.plugins.git.BranchSpec')
+        def scm = gitClass.newInstance(gitClass.createRepoList('{{ nexvion_repo_url }}', null), [branchClass.newInstance('*/main')], null, null, [])
+        def job = instance.createProject(jobClass, 'nexvion')
+        job.setDefinition(flowClass.newInstance(scm, 'jenkins/Jenkinsfile'))
+        job.save()
+        println('--> created pipeline job nexvion')
+    }
+} catch (Throwable t) {
+    println('--> job creation skipped: ' + t)
+}

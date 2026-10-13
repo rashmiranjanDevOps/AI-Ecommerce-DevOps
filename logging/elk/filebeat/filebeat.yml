@@ -1,0 +1,39 @@
+# Filebeat for Docker Compose: container logs of the nexvion-* containers + host system logs.
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: false
+      templates:
+        - condition:
+            contains:
+              docker.container.name: "nexvion-"
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+              fields:
+                log_type: container
+              fields_under_root: true
+
+filebeat.inputs:
+  - type: filestream
+    id: host-system-logs
+    paths:
+      - /var/log/host/syslog
+      - /var/log/host/auth.log
+      - /var/log/host/messages
+    fields:
+      log_type: system
+    fields_under_root: true
+
+processors:
+  - add_host_metadata: ~
+  - drop_event:
+      when:
+        contains:
+          container.name: "nexvion-filebeat"
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: warning

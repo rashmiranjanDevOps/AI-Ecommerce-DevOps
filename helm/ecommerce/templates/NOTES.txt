@@ -1,0 +1,12 @@
+Nexvion {{ .Values.image.tag }} released as "{{ .Release.Name }}" in namespace {{ .Release.Namespace }}.
+
+Watch the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "ecommerce.fullname" . }}
+
+Address of the site (the ALB DNS name appears after 2-3 minutes):
+  kubectl -n {{ .Release.Namespace }} get ingress {{ include "ecommerce.fullname" . }}
+{{- if .Values.ingress.host }}
+Host name configured: {{ .Values.ingress.host }}  (point a DNS record at the ALB)
+{{- end }}
+
+Live colour: {{ .Values.service.activeColor }}   (blue-green: scripts/deploy.sh bluegreen status)

@@ -1,0 +1,96 @@
+---
+- name: Find the kubectl version that matches the cluster
+  ansible.builtin.uri:
+    url: "https://dl.k8s.io/release/stable{{ ('-' ~ eks_cluster_version) if eks_cluster_version is defined else '' }}.txt"
+    return_content: true
+  register: kubectl_lookup
+  when: kubectl_version | length == 0
+
+- name: Choose the kubectl version
+  ansible.builtin.set_fact:
+    kubectl_wanted: "{{ kubectl_version if kubectl_version | length > 0 else (kubectl_lookup.content | trim) }}"
+
+- name: kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_wanted }}/bin/linux/amd64/kubectl"
+    checksum: "sha256:https://dl.k8s.io/release/{{ kubectl_wanted }}/bin/linux/amd64/kubectl.sha256"
+    dest: /usr/local/bin/kubectl
+    mode: "0755"
+
+- name: Helm archive
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    checksum: "sha256:https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz.sha256sum"
+    dest: "/tmp/helm-{{ helm_version }}.tar.gz"
+    mode: "0644"
+
+- name: Helm binary
+  ansible.builtin.unarchive:
+    src: "/tmp/helm-{{ helm_version }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: ["--strip-components=1", "linux-amd64/helm"]
+    creates: /usr/local/bin/helm
+
+- name: AWS CLI v2
+  block:
+    - name: Download AWS CLI
+      ansible.builtin.get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+        mode: "0644"
+    - name: Unpack AWS CLI
+      ansible.builtin.unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: true
+        creates: /tmp/aws/install
+    - name: Install AWS CLI
+      ansible.builtin.command: /tmp/aws/install --update
+      args:
+        creates: /usr/local/bin/aws
+
+- name: Trivy apt key
+  ansible.builtin.get_url:
+    url: https://aquasecurity.github.io/trivy-repo/deb/public.key
+    dest: /etc/apt/keyrings/trivy.asc
+    mode: "0644"
+
+- name: Trivy apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/trivy.asc] https://aquasecurity.github.io/trivy-repo/deb {{ ansible_distribution_release }} main"
+    filename: trivy
+    state: present
+
+- name: Install Trivy
+  ansible.builtin.apt:
+    name: trivy
+    state: present
+    update_cache: true
+
+- name: Gitleaks
+  ansible.builtin.unarchive:
+    src: "https://github.com/gitleaks/gitleaks/releases/download/v{{ gitleaks_version }}/gitleaks_{{ gitleaks_version }}_linux_x64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: [gitleaks]
+    mode: "0755"
+    creates: /usr/local/bin/gitleaks
+
+- name: NodeSource apt key (Node.js for the lint tools)
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    mode: "0644"
+
+- name: NodeSource apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_{{ node_major }}.x nodistro main"
+    filename: nodesource
+    state: present
+
+- name: Install Node.js
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+    update_cache: true

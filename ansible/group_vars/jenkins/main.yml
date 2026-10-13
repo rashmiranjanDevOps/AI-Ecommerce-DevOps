@@ -1,0 +1,16 @@
+---
+hardening_allowed_tcp_ports: [22, 8080]
+jenkins_http_port: 8080
+jenkins_admin_user: admin
+jenkins_apt_key_url: "https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key"   # key rotated in Dec 2025
+jenkins_create_job: true
+jenkins_plugins:
+  - git
+  - workflow-aggregator
+  - pipeline-stage-view
+  - github
+  - credentials-binding
+  - timestamper
+  - ws-cleanup
+  - build-timeout
+  - pipeline-utility-steps

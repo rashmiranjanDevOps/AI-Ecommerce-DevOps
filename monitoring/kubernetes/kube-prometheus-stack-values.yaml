@@ -1,0 +1,39 @@
+# helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#   -n monitoring --create-namespace -f monitoring/kubernetes/kube-prometheus-stack-values.yaml
+# Create the Grafana admin secret first (see scripts/deploy.sh addons):
+#   kubectl -n monitoring create secret generic grafana-admin \
+#     --from-literal=admin-user=admin --from-literal=admin-password='<strong password>'
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    # Pick up every ServiceMonitor / PrometheusRule, not only those from this release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 1Gi }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { memory: 128Mi }

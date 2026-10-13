@@ -1,0 +1,22 @@
+# Used when building with:  docker build -f docker/Dockerfile .
+.git
+.github
+.gitignore
+.env
+docs
+terraform
+ansible
+kubernetes
+helm
+monitoring
+logging
+security
+ai
+jenkins
+scripts
+backups
+reports
+**/*.md
+!application/README.txt
+**/node_modules
+**/__pycache__

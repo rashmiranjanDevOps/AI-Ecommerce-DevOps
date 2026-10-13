@@ -1,0 +1,14 @@
+[Pipeline] stage (Image Scan)
++ ./security/scan-image.sh 123456789012.dkr.ecr.ap-south-1.amazonaws.com/nexvion-web:42-1a2b3c4d
+2026-10-08 10:12:44 [INFO] Scanning 123456789012.dkr.ecr.ap-south-1.amazonaws.com/nexvion-web:42-1a2b3c4d
+
+nexvion-web:42-1a2b3c4d (alpine 3.19.1)
+=======================================
+Total: 3 (HIGH: 2, CRITICAL: 1)
+
+┌──────────────┬────────────────┬──────────┬───────────────────┬───────────────┐
+│   Library    │ Vulnerability  │ Severity │ Installed Version │ Fixed Version │
+├──────────────┼────────────────┼──────────┼───────────────────┼───────────────┤
+│ libssl3      │ CVE-2024-0727  │ CRITICAL │ 3.1.4-r2          │ 3.1.4-r5      │
+└──────────────┴────────────────┴──────────┴───────────────────┴───────────────┘
+ERROR: script returned exit code 1
