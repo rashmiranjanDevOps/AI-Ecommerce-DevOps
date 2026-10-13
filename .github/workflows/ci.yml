@@ -25,7 +25,7 @@ jobs:
     name: Lint and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -42,7 +42,7 @@ jobs:
     name: Security checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0              # full history for the secret scan
       - name: Install gitleaks and trivy
@@ -61,7 +61,7 @@ jobs:
     outputs:
       tag: ${{ steps.vars.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: vars
         run: echo "tag=${GITHUB_RUN_NUMBER}-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
       - name: Build
@@ -92,7 +92,7 @@ jobs:
       contents: read
       id-token: write                 # OIDC: no AWS keys are stored in GitHub
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
